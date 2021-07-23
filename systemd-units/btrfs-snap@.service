@@ -1,0 +1,6 @@
+[Unit]
+Description=btrfs-snap run: create new and rotate old snapshots
+
+[Service]
+EnvironmentFile=/etc/btrfs-snap/%i.env
+ExecStart=/usr/local/bin/btrfs-snap %i ${KEEP}

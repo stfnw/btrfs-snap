@@ -1,0 +1,13 @@
+[Unit]
+Description=Btrfs-snap main unit to start
+Requires=btrfs-snap@frequent.timer
+Requires=btrfs-snap@hourly.timer
+Requires=btrfs-snap@daily.timer
+Requires=btrfs-snap@weekly.timer
+Requires=btrfs-snap@monthly.timer
+
+Requires=multi-user.target
+After=multi-user.target
+
+[Install]
+WantedBy=multi-user.target
