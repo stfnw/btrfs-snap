@@ -24,7 +24,7 @@ def main():
     run(["mkdir","-p","-m","0700",mountpoint])
     run(["mount","-t","btrfs","-L","system",mountpoint])
 
-    subvollist = run(["btrfs","subvolume","list",mountpoint,"--sort=+path"],
+    subvollist = run(["btrfs","subvolume","list",mountpoint,"--sort=-path"],
             capture_output=True).stdout.decode()
     # print(subvollist)
     subvols = [ line.split(" ")[8] for line in subvollist.splitlines()
