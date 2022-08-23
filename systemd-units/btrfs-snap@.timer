@@ -1,6 +1,6 @@
 [Unit]
 PartOf=btrfs-snap.target
-Persistent=true
 
 [Timer]
+Persistent=true
 OnCalendar=%i
