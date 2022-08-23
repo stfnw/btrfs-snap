@@ -1,56 +1,116 @@
 #!/usr/bin/python3
 
+"""
+Periodically take and rotate btrfs snapshots.
+
+Relatively inflexible / with many hardcoded values:
+  * filesystem to backup has the label "system"
+  * subvolume exclusion list
+  * temporary mount location
+  * snapshot naming format
+"""
+
+import argparse
 import datetime
 import subprocess
 import re
-import sys
+
 
 def run(cmd, capture_output=False):
-    print('[+] running', cmd)
+    """Run and log commands."""
+    print("[+] running", cmd)
     return subprocess.run(cmd, capture_output=capture_output, check=True)
 
+
+def handle_args():
+    """Parse commandline arguments."""
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "label",
+        help=(
+            "The name/label associated with the current snapshot. "
+            + "This is used to differentiate between kinds of snapshots "
+            + "(e.g. daily/weekly)."
+        ),
+    )
+    parser.add_argument(
+        "keep",
+        type=int,
+        help=(
+            "The number of snapshots of the specified label to keep "
+            + "(older ones are rotated out)."
+        ),
+    )
+
+    args = parser.parse_args()
+    assert args.label.isalpha()
+    assert 0 < args.keep < 50
+    return args
+
+
 def main():
-    label = sys.argv[1] ; assert label.isalpha()
-    keep  = int(sys.argv[2]) ; assert 0 < keep < 50
+    """Main function"""
+    args = handle_args()
 
-    snapformat  = datetime.datetime.utcnow() \
-        .strftime(f"%Y-%m-%d_%H-%M-%S_btrfs-snap_{label}")
-    snaprematch = re.compile("([^@]+)@....-..-.._..-..-.._btrfs-snap_"+label)
+    snapformat = datetime.datetime.utcnow().strftime(
+        f"%Y-%m-%d_%H-%M-%S_btrfs-snap_{args.label}"
+    )
+    snaprematch = re.compile(
+        f"([^@]+)@....-..-.._..-..-.._btrfs-snap_{args.label}"
+    )
+    mountdir = f"/btrfsroot/{snapformat}/"
 
-    mountpoint = f"/btrfsroot/{snapformat}/"
+    run(["btrfs", "filesystem", "show", "system"])
 
-    run(["btrfs","filesystem","show","system"])
+    run(["mkdir", "-p", "-m", "0700", mountdir])
+    run(["mount", "-t", "btrfs", "-L", "system", mountdir])
 
-    run(["mkdir","-p","-m","0700",mountpoint])
-    run(["mount","-t","btrfs","-L","system",mountpoint])
-
-    subvollist = run(["btrfs","subvolume","list",mountpoint,"--sort=-path"],
-            capture_output=True).stdout.decode()
+    subvollist = run(
+        ["btrfs", "subvolume", "list", mountdir, "--sort=-path"],
+        capture_output=True,
+    ).stdout.decode()
     # print(subvollist)
-    subvols = [ line.split(" ")[8] for line in subvollist.splitlines()
-        if (" var/" not in line) ]
-    subvols_without_snaps = [ vol for vol in subvols if '@' not in vol ]
+    subvols = [
+        line.split(" ")[8]
+        for line in subvollist.splitlines()
+        if (" var/" not in line)
+    ]
 
     counters = {}
-    for vol in subvols:
-        if '@' not in vol:                  # create new snapshot
-            snapdst = mountpoint + vol + "@" + snapformat
-            run(["btrfs","subvolume","snapshot","-r",
-                mountpoint + vol,snapdst])
+    for subvol in subvols:
+        if "@" not in subvol:  # create new snapshot
+            snapdst = mountdir + subvol + "@" + snapformat
+            run(
+                [
+                    "btrfs",
+                    "subvolume",
+                    "snapshot",
+                    "-r",
+                    mountdir + subvol,
+                    snapdst,
+                ]
+            )
             continue
-        m = snaprematch.match(vol)
-        if m:
-            volroot = m.group(1)
-            counters[volroot] = counters.get(volroot,0) + 1
-            if counters[ volroot ] >= keep: # rotate / delete oldest ones
+        tmpmatch = snaprematch.match(subvol)
+        if tmpmatch:
+            volroot = tmpmatch.group(1)
+            counters[volroot] = counters.get(volroot, 0) + 1
+            if counters[volroot] >= args.keep:  # rotate / delete oldest ones
                 # just make 100% sure to only delete auto-snapshots
-                assert "@" in vol and "btrfs-snap" in vol and label in vol
-                run(["btrfs","subvolume","delete","-vC",mountpoint + vol])
+                assert (
+                    "@" in subvol
+                    and "btrfs-snap" in subvol
+                    and args.label in subvol
+                )
+                run(["btrfs", "subvolume", "delete", "-vC", mountdir + subvol])
 
-    run(["btrfs","filesystem","show","system"])
+    run(["btrfs", "filesystem", "show", "system"])
 
-    run(["umount",mountpoint])
-    run(["rmdir",mountpoint])
+    run(["umount", mountdir])
+    run(["rmdir", mountdir])
 
 
 if __name__ == "__main__":
